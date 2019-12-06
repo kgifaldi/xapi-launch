@@ -178,7 +178,16 @@ var endpoint = '{{{endpoint}}}';
 $(document).ready(function(){
     
     var url = new URL(content.url);
-    params = "xAPILaunchKey=" + launch.uuid + "&xAPILaunchService=" + encodeURIComponent(endpoint);
+    var objectType = "Agent";
+    var agent_name = "Admin";
+    var account;
+    var homePage = "http://localhost:3000/";
+    var account_name = "5d4dcc9b05ed645dd43db6d9";
+    var account = {homePage: homePage, name: account_name};
+    var actor = {objectType: objectType, name: agent_name, account: account};
+    
+    params = "xAPILaunchKey=" + launch.uuid +"&endpoint=http://localhost:3000/launch/" + launch.uuid +"/xAPI/" + "&xAPILaunchService=" + encodeURIComponent(endpoint);// + "&registration=8f9fae22-059d-4df0-85c6-965e0f3bea8a";// + "&b_actor=eyJhY2NvdW50IjpbeyJhY2NvdW50U2VydmljZUhvbWVQYWdlIjoiaHR0cDovL3dlYnBob25lLmF0dC5jb20iLCJhY2NvdW50TmFtZSI6Im1tMTMyYiJ9XSwibmFtZSI6WyJNaWNoYWVsIE1haGVyIl0sIm9iamVjdFR5cGUiOiJBZ2VudCJ9&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7"; //&xAPILaunchService=" + encodeURIComponent(endpoint); // + "&b_actor=" + "eyJhY2NvdW50IjpbeyJhY2NvdW50U2VydmljZUhvbWVQYWdlIjoiaHR0cDovL3dlYnBob25lLmF0dC5jb20iLCJhY2NvdW50TmFtZSI6Im1tMTMyYiJ9XSwibmFtZSI6WyJNaWNoYWVsIE1haGVyIl0sIm9iamVjdFR5cGUiOiJBZ2VudCJ9" + "&endpoint=" + "http://zld06475.vci.att.com:8080/pub/xAPIP/";
+    //params = "xAPILaunchKey=" + launch.uuid +"&xAPILaunchService=" + encodeURIComponent(endpoint); // + "&b_actor=" + "eyJhY2NvdW50IjpbeyJhY2NvdW50U2VydmljZUhvbWVQYWdlIjoiaHR0cDovL3dlYnBob25lLmF0dC5jb20iLCJhY2NvdW50TmFtZSI6Im1tMTMyYiJ9XSwibmFtZSI6WyJNaWNoYWVsIE1haGVyIl0sIm9iamVjdFR5cGUiOiJBZ2VudCJ9" + "&endpoint=" + "http://zld06475.vci.att.com:8080/pub/xAPIP/";
 
     if (content.publicKey == true)
     {
