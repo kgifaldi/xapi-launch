@@ -11,6 +11,8 @@ var ensureLoggedIn = utils.ensureLoggedIn(function(req, res, next)
 });
 var File = require("./types.js").file;
 var Package = require("./types.js").package;
+var request = require('request');
+
 
 var userHasRole = require("./users.js").userHasRole;
 var parseXml = require('xml2js').parseString;
@@ -108,6 +110,74 @@ exports.setup = function(app, DAL)
 				})
 			}
 		});
+
+/*
+		console.log("gifaldi uploading course to PLE!");
+		console.log("gifaldi req.files.zip: ", req.files.zip);
+
+		var options = {
+			method: "POST",
+			url: "http://localhost:8080/publish-rs/v1/upload/mm132b/62274890", // lrs.test.att.com:8001?statementId=xxxxxx
+			headers: {
+				"Content-Type": "multipart/form-data"
+			},
+			formData : {
+				"myfile": req.files.zip.buffer
+				//"myfile": fs.createReadStream(req.files.zip.originalFilename)
+			}
+		};
+		console.log("gifaldi options set");
+
+		// call PLE upload endpoint        
+		var lrs_request = request(options, function(err, resp, request_body){
+			if(err){
+				console.error("Error while sending statement to lrs: ", err);
+			}
+			var headers = resp.headers;
+			var statusCode = resp.statusCode;
+			res.status(statusCode).send(resp.body);
+		    res.status(statusCode).send(request_body);
+			console.log("Headers: ", headers);
+			console.log("Status Code: ", statusCode);
+			console.log("Body: ",request_body);
+		})
+*/
+
+		/*
+
+		 var options = {
+                 method: req.method,
+                 //body: requestData,
+                 body: req.body,
+                 rejectUnauthorized: false,
+                 json: true,
+                 url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
+                 headers: {
+                     "X-Experience-API-Version": "1.0.3",
+                     "Content-Type": "application/json",
+                     "Authorization": auth,
+                     "Content-Length": bodyLength,
+                     "Cookie": globalCookie
+                 },
+             };
+
+             // send statement to lrs            
+             var lrs_request = request(options, function(err, resp, request_body){
+                 if(err){
+                     console.error("Error while sending statement to lrs: ", err);
+                 }
+                 var headers = resp.headers;
+                 var statusCode = resp.statusCode;
+                 res.status(statusCode).send(resp.body);
+             // res.status(statusCode).send(request_body);
+                 console.log("Headers: ", headers);
+                 console.log("Status Code: ", statusCode);
+                 console.log("Body: ",request_body);
+             })
+
+		*/
+
+
 	});
 
 	function deletePackage(id, cb)

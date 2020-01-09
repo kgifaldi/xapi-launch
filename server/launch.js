@@ -11,6 +11,13 @@ var validateTypeWrapper = require("./utils.js").validateTypeWrapper;
 var lockedKeys = {};
 var config = require("./config.js").config;
 var checkOwner = require("./users.js").checkOwner;
+var longjohn = require('longjohn');
+var https = require('https');
+var request = require('request');
+var globalCookie;
+
+longjohn.async_trace_limit = -1; 
+
 exports.setup = function(app, DAL)
 {
 
@@ -46,11 +53,13 @@ exports.setup = function(app, DAL)
 
                     launchData.actor = {
                         objectType: "Agent",
-                        name: user.username,
+                       // name: user.username,
+                        name: "Kyle Gifaldi",
                         account:
                         {
                             "homePage": (config.host || "http://localhost:3000") +"/",
-                            "name": user._id
+                            //"name": user._id
+                            "name": "kg904k"
                         }
                     }
 
@@ -60,6 +69,7 @@ exports.setup = function(app, DAL)
                     
                     var localServer = (config.host || "http://localhost:3000") +"/"; 
                     launchData.endpoint = localServer + "launch/" + launch.uuid + "/xAPI/";
+                    // KGIFALDI ENDPOINT
                     launchData.contextActivities = {};
                     launchData.contextActivities.parent = launch.xapiForm();
                     if(launch.courseContext)
@@ -92,12 +102,20 @@ exports.setup = function(app, DAL)
     //this is the proper place for the launch server to enforce access limits on the content. 
     //The launch server could have all sorts of business logic around if a new launch for given content is allowed.
     //This is out of scope of the launch spec.
+    // gifaldi this might be where to call the post
     app.get("/launch/:key", ensureLoggedIn(function(req, res, next)
     {
+        var temp;
         DAL.getContentByKey(req.params.key, function(err, content)
         {
             if (content)
             {
+
+                
+               
+                
+                
+
                 console.log("query is", req.query);
                 DAL.createLaunchRecord(
                 {
@@ -126,10 +144,75 @@ exports.setup = function(app, DAL)
                         }
                         res.locals.launch = JSON.stringify(clientlaunch);
                         res.locals.content = JSON.stringify(clientContent);
-                        res.render("launch.html", res.locals);
+
+                        temp = launch.uuid;
+                        //var path = "launch/" + req.originalUrl.split("/")[2];
+                        var path = "launch/" + temp;
+                        //var path = "launch/" + launch.uuid;
+                        var service = "http://localhost:3000";
+                        var endpoint = service.slice(-1) === '/' ? service + path : service + '/' + path;
+                        var result_actor = "result";
+                
+                                
+                        // send POST to /launch/:key endpoint in exchange for actor info and to initialize the course
+                        request.post(endpoint, (err, httpRes, body) => {
+                            console.log("Cookies: ", httpRes.headers["set-cookie"]);
+                            var cookie = httpRes.headers["set-cookie"][0];
+                            globalCookie = cookie;
+                            console.log("CONNECT.SID cookie: ", cookie);
+
+                            // add the actor information to the body of the following request to lrs (PUT request to send statement) 
+                            if(body != null && body != undefined && result_actor != undefined){
+                                try{
+                                    result_actor = body;
+                                    req.body.actor = result_actor.split("actor\":")[1]; 
+                                    if(req.body.actor != undefined){
+                                        req.body.actor = JSON.parse(req.body.actor.split(",\"endpoint")[0]);
+                                    }
+                                    else{
+                                        req.body.actor = JSON.parse(req.body.actor);
+                                    }
+                                   
+                                    console.log("actor: ", req.body.actor);
+                               }catch(e){
+                                   console.log(e);
+                               }
+                            }
+
+                           // req.body.actor.account.name = "kg904k";
+                            //req.body.actor.name = "Kyle Gifaldi";
+
+                            console.log("gifaldi ACTOR RIGHT???: ", req.body.actor);
+                            console.log("cookie: ", res.cookies);
+                            globalCookie = req.cookies['connect.sid'];
+                            req.headers.cookie = globalCookie;
+
+                            req.headers['x-experience-api-version'] = '1.0.1';
+                        
+
+                            var waitTill = new Date(new Date().getTime() + 1000);
+                            while(waitTill > new Date()){}
+                            res.render("launch.html", res.locals);
+
+
+
+
+                        //res.render("launch.html", res.locals); // comment out
+                    
+                    }); // todo remove
+
+                        
+
                     }
                 })
+
+                
+            
+
+
             }
+
+
             else
             {
                 res.status(500).send(err);
@@ -209,7 +292,7 @@ exports.setup = function(app, DAL)
         else
             res.set("Access-Control-Allow-Origin", "*");
         res.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-        res.set("Access-Control-Allow-Headers", "X-Experience-API-Version, Authorization, Content-Type")
+        //res.set("Access-Control-Allow-Headers", "X-Experience-API-Version, Authorization, Content-Type, Cookie, *")
         res.set("Access-Control-Allow-Credentials", "true");
         if (req.method == 'OPTIONS')
         {
@@ -233,6 +316,7 @@ exports.setup = function(app, DAL)
         //could start before the DB operation finishes and return the launch record
         //this synchronous check prevents that case
         lockedKeys[req.params.key] = true;
+        // have to get correct value into req.params.key?
         DAL.getLaunchByGuid(req.params.key, function(err, launch)
         {
             if (!launch)
@@ -262,10 +346,17 @@ exports.setup = function(app, DAL)
                         }
                         else
                         {
-                            res.status(500).send("The launch token has already been used.");
-                            return
+                            // gifaldi todo remove below block later:
+                            sendLaunchData(launch, req, res, true);
+                            return;
+                            // remove above and uncomment below!!!!!
+
+                            //res.status(500).send("The launch token has already been used.");
+                            //return
                         }
                     }
+                    // gifaldi cookie: req.headers.cookie['connect.sid']
+
                     //if the content does not initiate the launch in 60 seconds,
                     //it will time out and switch to the closed state
                     //enforce this only if the time recorded for this content is a positive number
@@ -332,6 +423,7 @@ exports.setup = function(app, DAL)
                 //who is serving the content to the student. 
                 console.log("launch client", launch.client);
                 console.log("sessionID", req.sessionID);
+                req.sessionID = launch.client;
                 if (launch.client !== req.sessionID)
                 {
                     //console.log(launch.client, req.cookies["connect.sid"])
@@ -392,8 +484,12 @@ exports.setup = function(app, DAL)
         }
     }
 
+   
+ 
+    // unused?
     app.post("/launch/:key/xAPI/statements", validateLaunchSession(function(req, res, next)
     {
+        console.log("gifaldi is this working???");
         //here, we need to validate the activity and append the context data
         //then forward to our registered LRS
         var postedStatement = req.body;
@@ -686,6 +782,11 @@ exports.setup = function(app, DAL)
                 });
         })
     }));
+    
+  
+
+
+
     app.get("/launch/:key/xAPI/statements*", validateLaunchSession(function(req, res, next)
     {
         var search = require('url').parse(req.originalUrl).search;
@@ -699,33 +800,505 @@ exports.setup = function(app, DAL)
                     if(err)
                         console.log(err);
                     dealWithMore(lrsRes.body, res, req.params.key)
-                });
+                });j
            
         }));
     }));
-    app.all("/launch/:key/xAPI/*", validateLaunchSession(function(req, res, next)
-    {
-        //passthrough all other XAPI commands
+  
+    function uuidv4() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      }
 
-            var search = require('url').parse(req.originalUrl).search;
-            var proxyAddress = req.lrsConfig.endpoint + req.params[0]  + (search? search : "");
-            console.log(proxyAddress)
-            var request = require('request');
-            req.pipe( request({
-                  url: proxyAddress,
-                  method: req.method
-              }, function(error, response, body){
-               
-                  console.error(error);
-                
-              }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
-                console.log(e);
-            }).pipe( res );
+/*
+http://localhost:3000/package
+/a14798c7-baef-4d65-bca7-39880ffa6f77/index.html?
+xAPILaunchKey=3383fd60-4d22-9eaa-80a2-89e86140307d&
+endpoint=http://localhost:3000/launch/3383fd60-4d22-9eaa-80a2-89e86140307d/xAPI/&
+xAPILaunchService=http%3A%2F%2Flocalhost%3A3000%2F#/lessons/thdkIGPgkWqMXpF9zUhAzh0XaaiBfhMx
 
+*/
+ 
 
-         //   req.pipe(require('request')(proxyAddress).auth(req.lrsConfig.username,req.lrsConfig.password,true).on("error",function(e){console.log(e); res.status(500).send(err)})).pipe(res).on("error",function(e){console.log(e); res.status(500).send(err)});
+/*
+     // Send statements to lrs
+    app.all("/launch/:key/xAPI/*", validateLaunchSession(function(req, res, next)
+    {        
+        console.log("gifaldi launch statement");
+        console.log("gifaldi reqeust.url:", req.url);
+        console.log("gifaldi reqeust.originalurl:", req.originalUrl);*/
+        //req.body = JSON.parse('{"actor":{"account":{"name":"kg904k","homePage":"http://webphone.att.com"},"name":"kg904k","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-11T18:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}}');
+        //var username = "7fc800c434e3aa7eb6afc94ab32e036e76ce294a";
+        //var password = "477646f2fece6f24d89e2fce4bce2cc2784b060a";
+        //var auth = "Basic " + new Buffer("7fc800c434e3aa7eb6afc94ab32e036e76ce294a" + ":" + "477646f2fece6f24d89e2fce4bce2cc2784b060a").toString("base64");
+        //var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+        //var requestData = {"actor":{"account":{"name":"mm132b","homePage":"http://webphone.att.com"},"name":"mm132b","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-16T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
+        //var requestData = {"actor": { "objectType": "Agent","name": "Admin", "account": { "homePage": "http://localhost:3000/", "name": "5d4dcc9b05ed645dd43db6d9" }},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-17T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
         
+     
+   // }));
+
+    
+   // app.all("*xAPI*", validateLaunchSession(function(req, res, next)
+    //{        
+     //   console.log("gifaldi launch statement");
+      //  console.log("gifaldi reqeust.url:", req.url);
+       // console.log("gifaldi reqeust.originalurl:", req.originalUrl);
+    //}));
+
+            /*
+                            req.pipe( request({
+                                url: proxyAddress,
+                                method: req.method
+                            }, function(error, response, body){
+                            
+                                console.error(error);
+                            
+                            }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
+                            console.log(e);
+                            }).pipe( res );
+            
+                            // send statement to lrs            
+                            var lrs_request = request(options, function(err, resp, request_body){
+                                if(err){
+                                    console.error("Error while sending statement to lrs: ", err);
+                                }
+                                var headers = resp.headers;
+                                var statusCode = resp.statusCode;
+                                res.status(statusCode).send(resp.body);
+                            // res.status(statusCode).send(request_body);
+                                console.log("Headers: ", headers);
+                                console.log("Status Code: ", statusCode);
+                                console.log("Body: ",request_body);
+            });           
+
+        }
+        
+        
+    }));
+*/
+
+// send bookmarking statements to lrs
+
+app.all("*/xAPI/activites/*", validateLaunchSession(function(req, res, next)
+{        
+    console.log("gifaldi in ACTIVITIES: ", req.originalUrl);
+     
+     //req.body = JSON.parse('{"actor":{"account":{"name":"kg904k","homePage":"http://webphone.att.com"},"name":"kg904k","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-11T18:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}}');
+     //var username = "7fc800c434e3aa7eb6afc94ab32e036e76ce294a";
+     //var password = "477646f2fece6f24d89e2fce4bce2cc2784b060a";
+     //var auth = "Basic " + new Buffer("7fc800c434e3aa7eb6afc94ab32e036e76ce294a" + ":" + "477646f2fece6f24d89e2fce4bce2cc2784b060a").toString("base64");
+     //var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+     //var requestData = {"actor":{"account":{"name":"mm132b","homePage":"http://webphone.att.com"},"name":"mm132b","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-16T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
+     //var requestData = {"actor": { "objectType": "Agent","name": "Admin", "account": { "homePage": "http://localhost:3000/", "name": "5d4dcc9b05ed645dd43db6d9" }},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-17T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
+     console.log("gifaldi method in state call: ", req.originalUrl);
+     console.log("gifaldi method in state call: ", req.params);
+     console.log("gifaldi method in state call: ", req.method);
+     var search = require('url').parse(req.originalUrl).search;
+     //var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
+     var setActor = false;
+     var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
+     proxyAddress += "&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7";
+   /*
+     if(req.params[0] == "activities/state"){
+         //proxyAddress += "&registration=" + req.params.key; //launch.uuid
+         proxyAddress += "&activityId=http://ple.web.att.com/course/62274816";
+         //proxyAddress += "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"5d4dcc9b05ed645dd43db6d9\",\"homePage\":\"http://localhost:3000/\"},\"name\":\"Admin\"}";
+         proxyAddress += "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"mm132b\",\"homePage\":\"http://localhost:3000/\"},\"name\":\"Michael Maher\"}";
+  
+     }
+     else{
+         setActor = true;
+     }
+   */
+setActor = true;
+       console.log(proxyAddress)
+     var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+     var path = "launch/" + req.originalUrl.split("/")[2];
+     var service = req.query.xAPILaunchService;
+     //var endpoint = service.slice(-1) === '/' ? service + path : service + '/' + path;
+     var endpoint = "http://localhost:3000" + '/' + path;
+     var result_actor = "result";
+
+     
+     if(setActor){
+
+         // send POST to /launch/:key endpoint in exchange for actor info and to initialize the course
+         request.post(endpoint, (err, httpRes, body) => {
+             console.log("Cookies: ", httpRes.headers["set-cookie"]);
+             var cookie = httpRes.headers["set-cookie"][0];
+             console.log("CONNECT.SID cookie: ", cookie);
+
+             // add the actor information to the body of the following request to lrs (PUT request to send statement) 
+             if(body != null && body != undefined && setActor){
+                 try{
+                     result_actor = body;
+                     req.body.actor = JSON.parse(result_actor.split("actor\":")[1].split(",\"endpoint")[0]);
+                     req.body.activityId = "http://localhost:3000/course/62274816";
+                     req.query.activityId = "http://localhost:3000/course/62274816";
+                     console.log("GIFALDI: setting body actor to: ", req.body.actor);
+                    }catch(e){
+                     console.log("gifaldi WRONG: ", e);
+                 }
+             }
+             
+             var bodyLength = 0;
+             if(req.body != undefined){
+                 bodyLength = req.body.length;
+             }
+             
+             
+             var options = {
+                 method: req.method,
+                 //body: requestData,
+                 body: req.body,
+                 rejectUnauthorized: false,
+                 json: true,
+                 url: proxyAddress + "&activityId=http://ple.web.att.com/course/62274816", // lrs.test.att.com:8001?statementId=xxxxxx
+                 headers: {
+                     "X-Experience-API-Version": "1.0.3",
+                     "Content-Type": "application/json",
+                     "Accept": "*/*",
+                     "Authorization": auth,
+                     "Content-Length": bodyLength,
+                     "Cookie": globalCookie
+                 },
+             };
+
+             req.pipe( request({
+                 url: proxyAddress,
+                 method: req.method
+             }, function(error, response, body){
+             
+                 console.error(error);
+             
+             }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
+             console.log("gifaldi ERROR HERE!!!!!!!: ", e);
+             }).pipe( res );
+
+             // send statement to lrs            
+             var lrs_request = request(options, function(err, resp, request_body){
+                 if(err){
+                     console.error("Error while sending statement to lrs: ", err);
+                 }
+                 var headers = resp.headers;
+                 var statusCode = resp.statusCode;
+                 res.status(statusCode).send(resp.body);
+             // res.status(statusCode).send(request_body);
+                 console.log("Headers: ", headers);
+                 console.log("Status Code: ", statusCode);
+                 console.log("Body: ",request_body);
+             })
+         });           
+     }
+     else{
+         
+             
+         var options = {
+                             method: req.method,
+                             //body: requestData,
+                             body: req.body,
+                             rejectUnauthorized: false,
+                             json: true,
+                             url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
+                             headers: {
+                                 "X-Experience-API-Version": "1.0.3",
+                                 "Content-Type": "application/json",
+                                 "Accept": "*/*",
+                                 "Authorization": auth,
+                                 //"Content-Length": bodyLength,
+                                 "Cookie": globalCookie
+                             },
+                         };
+         }
+ }));
+
+ // Send statements to lrs
+ app.all("/launch/:key/xAPI/*", validateLaunchSession(function(req, res, next)
+ {        
+     
+     //req.body = JSON.parse('{"actor":{"account":{"name":"kg904k","homePage":"http://webphone.att.com"},"name":"kg904k","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-11T18:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}}');
+     //var username = "7fc800c434e3aa7eb6afc94ab32e036e76ce294a";
+     //var password = "477646f2fece6f24d89e2fce4bce2cc2784b060a";
+     //var auth = "Basic " + new Buffer("7fc800c434e3aa7eb6afc94ab32e036e76ce294a" + ":" + "477646f2fece6f24d89e2fce4bce2cc2784b060a").toString("base64");
+     //var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+     //var requestData = {"actor":{"account":{"name":"mm132b","homePage":"http://webphone.att.com"},"name":"mm132b","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-16T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
+     //var requestData = {"actor": { "objectType": "Agent","name": "Admin", "account": { "homePage": "http://localhost:3000/", "name": "5d4dcc9b05ed645dd43db6d9" }},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-17T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
+     
+     var search = require('url').parse(req.originalUrl).search;
+     //var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
+     var setActor = false;
+     var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
+     proxyAddress += "&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7";
+   /*
+     if(req.params[0] == "activities/state"){
+         //proxyAddress += "&registration=" + req.params.key; //launch.uuid
+         proxyAddress += "&activityId=http://ple.web.att.com/course/62274816";
+         //proxyAddress += "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"5d4dcc9b05ed645dd43db6d9\",\"homePage\":\"http://localhost:3000/\"},\"name\":\"Admin\"}";
+         proxyAddress += "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"mm132b\",\"homePage\":\"http://localhost:3000/\"},\"name\":\"Michael Maher\"}";
+  
+     }
+     else{
+         setActor = true;
+     }
+   */
+setActor = true;
+       
+
+     var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+     var path = "launch/" + req.originalUrl.split("/")[2];
+     var service = req.query.xAPILaunchService;
+     //var endpoint = service.slice(-1) === '/' ? service + path : service + '/' + path;
+     var endpoint = "http://localhost:3000" + '/' + path;
+     var result_actor = "result";
+     console.log("GIFALDI test 1: ", req.username);
+     console.log("GIFALDI test 2: ", req.user);
+     console.log("GIFALDI test 3: ", req.uuid);
+     console.log("GIFALDI test 3: ", req.getUser);
+  
+     if(setActor){
+
+         // send POST to /launch/:key endpoint in exchange for actor info and to initialize the course
+         request.post(endpoint, (err, httpRes, body) => {
+             console.log("Cookies: ", httpRes.headers["set-cookie"]);
+             var cookie = httpRes.headers["set-cookie"][0];
+             console.log("CONNECT.SID cookie: ", cookie);
+             console.log("gifaldi BODYYY!!!! ", body);
+            var temp_body = body;
+            var nameSplit;
+            var statementName = "";
+            var accountName = "";
+             try{
+                // if state request, add agent, registration, and activityId to proxyAddress
+                nameSplit = temp_body.split("name");
+                console.log("nameSplit gifaldi: ", nameSplit);
+                statementName = nameSplit[1].split("\",")[0].split(":\"")[1]; // Note: this line assumes body is in specific format: {... name:"FirstName LastName",...name:"username"}}...}
+                console.log("statementName gifaldi: ", statementName);
+                accountName = nameSplit[2].split("\"}")[0].split(":\"")[1]; // Note: this line assumes body is in specific format: {... name:"FirstName LastName",...name:"username"}}...}
+                console.log("accountName gifaldi: ", accountName);
+
+                if(proxyAddress.includes("stateId")){
+                    if(!proxyAddress.includes("activityId")){
+                        proxyAddress = proxyAddress + "&activityId=http://ple.web.att.com/course/62274816";
+                    }
+                    if(!proxyAddress.includes("agent")){
+                        proxyAddress = proxyAddress + "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"" + accountName + "\",\"homePage\":\"http://webphone.att.com\"},\"name\":\"" + statementName + "\"}";
+                    }
+                    if(!proxyAddress.includes("registration")){
+                        proxyAddress = proxyAddress + "&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7";
+                    }
+                }
+
+             }catch(e){
+                 console.log("gifaldi error!~: ", e); // key may be locked to prevent double launch
+             }
+            //statementName = body['actor']['name'];
+            //accountName = body['actor']['account']['name']; 
+            //console.log("gifaldi statementName: ", statementName);
+            //console.log("gifaldi accountName: ", accountName);
+            //console.log(proxyAddress);
+
+             // add the actor information to the body of the following request to lrs (PUT request to send statement) 
+             if(body != null && body != undefined && setActor){
+                 try{
+                     result_actor = body;
+                     req.body.actor = JSON.parse(result_actor.split("actor\":")[1].split(",\"endpoint")[0]);
+                    console.log("GIFALDI: setting body actor to: ", req.body.actor);
+
+                }catch(e){
+                    console.log("gifaldi WRONG: ", e);
+                 }
+             }
+             
+             var bodyLength = 0;
+             if(req.body != undefined){
+                 bodyLength = req.body.length;
+             }
+             
+             
+             var options = {
+                 method: req.method,
+                 //body: requestData,
+                 body: req.body,
+                 rejectUnauthorized: false,
+                 json: true,
+                 url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
+                 headers: {
+                     "X-Experience-API-Version": "1.0.3",
+                     "Content-Type": "application/json",
+                     "Accept": "*/*",
+                     "Authorization": auth,
+                     "Content-Length": bodyLength,
+                     "Cookie": globalCookie
+                 },
+             };
+
+             req.pipe( request({
+                 url: proxyAddress,
+                 method: req.method
+             }, function(error, response, body){
+             
+                 console.error(error);
+             
+             }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
+             console.log(e);
+             }).pipe( res );
+
+             // send statement to lrs            
+             var lrs_request = request(options, function(err, resp, request_body){
+                 if(err){
+                     console.error("Error while sending statement to lrs: ", err);
+                 }
+                 var headers = resp.headers;
+                 var statusCode = resp.statusCode;
+                 res.status(statusCode).send(resp.body);
+             // res.status(statusCode).send(request_body);
+                 console.log("Headers: ", headers);
+                 console.log("Status Code: ", statusCode);
+                 console.log("Body: ",request_body);
+             })
+         });           
+     }
+     else{
+         
+             
+         var options = {
+                             method: req.method,
+                             //body: requestData,
+                             body: req.body,
+                             rejectUnauthorized: false,
+                             json: true,
+                             url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
+                             headers: {
+                                 "X-Experience-API-Version": "1.0.3",
+                                 "Content-Type": "application/json",
+                                 "Accept": "*/*",
+                                 "Authorization": auth,
+                                 //"Content-Length": bodyLength,
+                                 "Cookie": globalCookie
+                             },
+                         };
+         }
+ }));
+         /*
+                         req.pipe( request({
+                             url: proxyAddress,
+                             method: req.method
+                         }, function(error, response, body){
+                         
+                             console.error(error);
+                         
+                         }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
+                         console.log(e);
+                         }).pipe( res );
+         
+                         // send statement to lrs            
+                         var lrs_request = request(options, function(err, resp, request_body){
+                             if(err){
+                                 console.error("Error while sending statement to lrs: ", err);
+                             }
+                             var headers = resp.headers;
+                             var statusCode = resp.statusCode;
+                             res.status(statusCode).send(resp.body);
+                         // res.status(statusCode).send(request_body);
+                             console.log("Headers: ", headers);
+                             console.log("Status Code: ", statusCode);
+                             console.log("Body: ",request_body);
+         });           
+     }
+     
+        
+ }));*/
+/*
+ app.all("*activities*", function(req, res, next){
+     console.log("gifaldi all function: ", req.originalUrl);
+     return;
+ });
+
+ app.all("launch/:key/xAPI/activities/*", function(req, res, next){
+     console.log("gifaldi caught in vague method");
+
+     req.pipe( request({
+        url: req.originalUrl + "actor= {\"account\":[{\"accountServiceHomePage\":\"http://webphone.att.com\",\"accountName\":\"kg904k\"}],\"name\":[\"Kyle Gifaldi\"],\"objectType\":\"Agent\"}",
+        method: req.method
+    }, function(error, response, body){
+    
+        console.error(error);
+    
     }));
+    
+  });
+
+
+
+/*
+   // Send statements to lrs
+   app.all("/launch/:key/xAPI/*", validateLaunchSession(function(req, res, next)
+   {        
+        
+        //req.body = JSON.parse('{"actor":{"account":{"name":"kg904k","homePage":"http://webphone.att.com"},"name":"kg904k","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-11T18:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}}');
+        //var username = "7fc800c434e3aa7eb6afc94ab32e036e76ce294a";
+        //var password = "477646f2fece6f24d89e2fce4bce2cc2784b060a";
+        //var auth = "Basic " + new Buffer("7fc800c434e3aa7eb6afc94ab32e036e76ce294a" + ":" + "477646f2fece6f24d89e2fce4bce2cc2784b060a").toString("base64");
+       //var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+       //var requestData = {"actor":{"account":{"name":"mm132b","homePage":"http://webphone.att.com"},"name":"mm132b","objectType":"Agent"},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-16T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
+        //var requestData = {"actor": { "objectType": "Agent","name": "Admin", "account": { "homePage": "http://localhost:3000/", "name": "5d4dcc9b05ed645dd43db6d9" }},"object":{"id":"http://ple.web.att.com/course/62274816","objectType":"Activity"},"result":{"duration":"PT5H0.002S"},"timestamp":"2019-09-17T09:32:33.706Z","verb":{"id":"http://adlnet.gov/expapi/verbs/attempted","display":{"und":"attempted"}}};
+       
+       var search = require('url').parse(req.originalUrl).search;
+
+       var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
+        if(req.params[0] == "activities/state"){
+            proxyAddress += "&activityId=http://ple.web.att.com/course/62274816";
+            proxyAddress += "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"5d4dcc9b05ed645dd43db6d9\",\"homePage\":\"http://localhost:3000/\"},\"name\":\"Admin\"}";
+        }
+
+       console.log("gifaldi param[0]: ", req.params[0]);
+       console.log("gifaldi param[1]: ", req.params[1]);
+        console.log(proxyAddress)
+        var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+       var path = "launch/" + req.originalUrl.split("/")[2];
+       var service = req.query.xAPILaunchService;
+       //var endpoint = service.slice(-1) === '/' ? service + path : service + '/' + path;
+       var endpoint = "http://localhost:3000" + '/' + path;
+           
+         var options = {
+                method: req.method,
+                //body: requestData,
+             //body: req.body,
+                rejectUnauthorized: false,
+                //json: true,
+                url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
+                headers: {
+                    "X-Experience-API-Version": "1.0.3",
+                    "Content-Type": "application/json",
+                    "Accept": "*\/*",
+                    "Authorization": auth,
+                    //"Content-Length": req.body.length,
+                 //"Cookie": globalCookie
+                },
+            };
+
+         // send statement to lrs            
+            var lrs_request = request(options, function(err, resp, request_body){
+                if(err){
+                    console.error("Error while sending statement to lrs: ", err);
+                }
+             var headers = resp.headers;
+                var statusCode = resp.statusCode;
+             res.status(statusCode).send(request_body);
+                console.log("Headers: ", headers);
+                console.log("Status Code: ", statusCode);
+                console.log("Body: ",request_body);
+            })  
+           
+    }));
+
+*/
+ 
+
+
     app.get("/launches/:key", function(req, res, next)
     {
         DAL.getLaunchByGuid(req.params.key, function(err, launch)
