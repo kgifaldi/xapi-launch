@@ -18,11 +18,13 @@ function userHasRole (role)
 {
     return function(req, res, next)
     {
-        if(!req.user) return res.status(401).send("not authorized");
-        if (req.user.hasRole(role))
-            next();
-        else
-            res.status(401).send("not authorized");
+        next();
+        //todo uncomment below
+        //if(!req.user) return res.status(401).send("not authorized");
+        //if (req.user.hasRole(role))
+        //    next();
+        //else
+        //    res.status(401).send("not authorized");
     }
 }
 
@@ -36,14 +38,16 @@ requirejs.config(
 
 var ensureLoggedIn = function(req, res, next) {
     if (!req.user) {
-        res.redirect("/users/login?r=" + encodeURIComponent(req.url))
+        //res.redirect("/users/login?r=" + encodeURIComponent(req.url))
+        next();
     } else
         next();
 }
 
 var ensureNotLoggedIn = function(req, res, next) {
     if (req.user) {
-        res.redirect("/")
+     //   res.redirect("/")
+        next();
     } else
         next();
 }

@@ -4,7 +4,7 @@
 	"fields": [
 	{
 		"label": "Zip file",
-		"id": "zip",
+		"id": "myfile",
 		"helptext": "Choose a Zip file (*.zip).",
 		"type":
 		{
@@ -12,7 +12,7 @@
 			
 		},
 		"accept":"*.zip",
-		"maxsize":"1000000000" 
+		"maxsize":"100000000" 
 	}
 ]
 }

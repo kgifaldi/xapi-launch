@@ -15,11 +15,27 @@ var longjohn = require('longjohn');
 var https = require('https');
 var request = require('request');
 var globalCookie;
+var globalActor = null;
+var uuid = require('uuid');
+const uuidv1 = require('uuid/v1');
+var bodyParser = require('body-parser');
+
 
 longjohn.async_trace_limit = -1; 
 
 exports.setup = function(app, DAL)
 {
+    
+    var rawBodySaver = function (req, res, buf, encoding) {
+        if (buf && buf.length) {
+          req.rawBody = buf.toString(encoding || 'utf8');
+        }
+      }
+      
+      // todo: only use on stateId requests
+      app.use(bodyParser.json({ verify: rawBodySaver }));
+      app.use(bodyParser.urlencoded({ verify: rawBodySaver, extended: true }));
+      app.use(bodyParser.raw({ verify: rawBodySaver, type: '*/*' }));
 
     function courseGUIDToActivity(guid)
     {
@@ -53,13 +69,13 @@ exports.setup = function(app, DAL)
 
                     launchData.actor = {
                         objectType: "Agent",
-                       // name: user.username,
-                        name: "Kyle Gifaldi",
+                        name: user.username,
+                       // name: "Kyle Gifaldi",
                         account:
                         {
                             "homePage": (config.host || "http://localhost:3000") +"/",
-                            //"name": user._id
-                            "name": "kg904k"
+                            "name": user._id
+                            //"name": "kg904k"
                         }
                     }
 
@@ -105,7 +121,17 @@ exports.setup = function(app, DAL)
     // gifaldi this might be where to call the post
     app.get("/launch/:key", ensureLoggedIn(function(req, res, next)
     {
-        var temp;
+        var resourceid; // retrived from PLE, used in body of lrs statements
+        var packageid; // retrived from PLE (generated in launcher on course upload), used to launch course
+
+        // assign value to resourceid
+        if(req.query.resourceId != null){
+            resourceid = req.query.resourceId;
+        }
+        else{
+            console.log("TODO: error message"); 
+        }
+
         DAL.getContentByKey(req.params.key, function(err, content)
         {
             if (content)
@@ -127,10 +153,12 @@ exports.setup = function(app, DAL)
                         content.incLaunches();
                         var clientlaunch = launch.dbForm();
                         var clientContent = content.dbForm();
+                        var registration = req.query.registration;
                         clientContent.publicKey = !!clientContent.publicKey; //be sure not to send the actual public key to the client
                         res.locals.endpoint = (config.host || "http://localhost:3000") +"/"; 
                         //the the content has a public key, use it to encrypt the data. Note that the student has access to
                         //the launch uuid in plaintext... is this ok?
+                    
                         if (content.publicKey)
                         {
                             var key = new require('node-rsa')(content.publicKey);
@@ -139,63 +167,48 @@ exports.setup = function(app, DAL)
                         }
                         res.locals.launch = JSON.stringify(clientlaunch);
                         res.locals.content = JSON.stringify(clientContent);
+                        
+                        var path = "launch/" + res.locals.launch.split('uuid')[1].split(',')[0].split(':')[1].split('"')[1]; // write launch key to path variable for post request
 
-                        temp = launch.uuid;
-                        //var path = "launch/" + req.originalUrl.split("/")[2];
-                        var path = "launch/" + temp;
-                        //var path = "launch/" + launch.uuid;
-                        var service = "http://localhost:3000";
-                        var endpoint = service.slice(-1) === '/' ? service + path : service + '/' + path;
-                        var result_actor = "result";
+                        var local_service = "http://localhost:3000";
+                        var endpoint = local_service.slice(-1) === '/' ? local_service + path : local_service + '/' + path;
                 
-                                
+                         var actorString;       
                         // send POST to /launch/:key endpoint in exchange for actor info and to initialize the course
                         request.post(endpoint, (err, httpRes, body) => {
-                            console.log("Cookies: ", httpRes.headers["set-cookie"]);
                             var cookie = httpRes.headers["set-cookie"][0];
                             globalCookie = cookie;
-                            console.log("CONNECT.SID cookie: ", cookie);
 
-                            // add the actor information to the body of the following request to lrs (PUT request to send statement) 
-                            if(body != null && body != undefined && result_actor != undefined){
-                                try{
-                                    result_actor = body;
-                                    req.body.actor = result_actor.split("actor\":")[1]; 
-                                    if(req.body.actor != undefined){
-                                        req.body.actor = JSON.parse(req.body.actor.split(",\"endpoint")[0]);
-                                    }
-                                    else{
-                                        req.body.actor = JSON.parse(req.body.actor);
-                                    }
-                                   
-                                    console.log("actor: ", req.body.actor);
-                               }catch(e){
-                                   console.log(e);
-                               }
-                            }
+                            actorString = "{\"objectType\":\"Agent\",\"account\":{\"name\":\"" + req.query.resourceId + "\",\"homePage\":\"http://webphone.att.com\"},\"name\":\"Admin\"}";
+                            req.body.actor = JSON.parse(actorString);
 
                             console.log("cookie: ", res.cookies);
                             globalCookie = req.cookies['connect.sid'];
                             req.headers.cookie = globalCookie;
 
                             req.headers['x-experience-api-version'] = '1.0.1';
-                        
 
+                            // todo remove
                             var waitTill = new Date(new Date().getTime() + 1000);
                             while(waitTill > new Date()){}
+                            // TODO uncomment belove. only for testing!!!
+                            if(registration != null){
+                                res.locals.registration = registration;
+                            }
+                            else{
+                                res.locals.registration = uuid.v1();
+                            }
+
+                            packageid = (req.url.split('/')[2]).split('?')[0];
+                        
+                            res.locals.resourceid = resourceid;
+                            res.locals.package = packageid;
                             res.render("launch.html", res.locals);                    
-                    }); // todo remove
+                    }); // todo move to only happen once on first launch for user?
                         
                     }
                 })
-
-                
-            
-
-
             }
-
-
             else
             {
                 res.status(500).send(err);
@@ -275,7 +288,6 @@ exports.setup = function(app, DAL)
         else
             res.set("Access-Control-Allow-Origin", "*");
         res.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-        //res.set("Access-Control-Allow-Headers", "X-Experience-API-Version, Authorization, Content-Type, Cookie, *")
         res.set("Access-Control-Allow-Credentials", "true");
         if (req.method == 'OPTIONS')
         {
@@ -790,255 +802,169 @@ exports.setup = function(app, DAL)
           var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
           return v.toString(16);
         });
-      }
-
-
-// send state requests (bookmark, suspend_data) to lrs
-
-app.all("*/xAPI/activites/*", validateLaunchSession(function(req, res, next)
-{        
-    console.log("gifaldi in ACTIVITIES: ", req.originalUrl);
-     
- 
-     var search = require('url').parse(req.originalUrl).search;
-     var setActor = false;
-     var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
-     proxyAddress += "&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7";
-
-     setActor = true;
-     console.log(proxyAddress)
-     var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
-     var path = "launch/" + req.originalUrl.split("/")[2];
-     var service = req.query.xAPILaunchService;
-     var endpoint = "http://localhost:3000" + '/' + path;
-     var result_actor = "result";
-
-     
-     if(setActor){
-
-         // send POST to /launch/:key endpoint in exchange for actor info and to initialize the course
-         request.post(endpoint, (err, httpRes, body) => {
-             console.log("Cookies: ", httpRes.headers["set-cookie"]);
-             var cookie = httpRes.headers["set-cookie"][0];
-             console.log("CONNECT.SID cookie: ", cookie);
-
-             // add the actor information to the body of the following request to lrs (PUT request to send statement) 
-             if(body != null && body != undefined && setActor){
-                 try{
-                     result_actor = body;
-                     req.body.actor = JSON.parse(result_actor.split("actor\":")[1].split(",\"endpoint")[0]);
-                     //req.body.activityId = "http://localhost:3000/course/62274816"; // TODO replace with courseId
-                 }catch(e){
-                     console.log("Failed to add actor information to the request: ", e);
-                 }
-             }
-             
-             var bodyLength = 0;
-             if(req.body != undefined){
-                 bodyLength = req.body.length;
-             }
-             
-             
-             var options = {
-                 method: req.method,
-                 //body: requestData,
-                 body: req.body,
-                 rejectUnauthorized: false,
-                 json: true,
-                 url: proxyAddress + "&activityId=http://ple.web.att.com/course/62274816", // TODO replace with courseId, lrs.test.att.com:8001?statementId=xxxxxx 
-                 headers: {
-                     "X-Experience-API-Version": "1.0.3",
-                     "Content-Type": "application/json",
-                     "Accept": "*/*",
-                     "Authorization": auth,
-                     "Content-Length": bodyLength,
-                     "Cookie": globalCookie
-                 },
-             };
-
-             req.pipe( request({
-                 url: proxyAddress,
-                 method: req.method
-             }, function(error, response, body){
-             
-                 console.error(error);
-             
-             }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
-                console.log("failed to authorize lrs request: ", e);
-             }).pipe( res );
-
-             // send statement to lrs            
-             var lrs_request = request(options, function(err, resp, request_body){
-                 if(err){
-                     console.error("Error while sending statement to lrs: ", err);
-                 }
-                 var headers = resp.headers;
-                 var statusCode = resp.statusCode;
-                 res.status(statusCode).send(resp.body);
-                // res.status(statusCode).send(request_body);
-                 console.log("Headers: ", headers);
-                 console.log("Status Code: ", statusCode);
-                 console.log("Body: ",request_body);
-             })
-         });           
-     }
-     else{
-         
-             
-         var options = {
-                             method: req.method,
-                             //body: requestData,
-                             body: req.body,
-                             rejectUnauthorized: false,
-                             json: true,
-                             url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
-                             headers: {
-                                 "X-Experience-API-Version": "1.0.3",
-                                 "Content-Type": "application/json",
-                                 "Accept": "*/*",
-                                 "Authorization": auth,
-                                 //"Content-Length": bodyLength,
-                                 "Cookie": globalCookie
-                             },
-                         };
-         }
- }));
+    } 
 
  // Send statements to lrs
  app.all("/launch/:key/xAPI/*", validateLaunchSession(function(req, res, next)
  {        
      
      var search = require('url').parse(req.originalUrl).search;
-     //var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
-     var setActor = false;
-     var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0]; // lrs endpoint
-     proxyAddress += "&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7";
-
-     setActor = true;
-       
-
-     var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh";
+     var registration = req.query.registration;
+     var proxyAddress = "https://lrs.test.att.com:8001/data/xAPI/" + req.params[0]  + (search? search : "").split("&")[0] + "&registration=" + registration; // lrs endpoint
+     var auth = "Basic N2ZjODAwYzQzNGUzYWE3ZWI2YWZjOTRhYjMyZTAzNmU3NmNlMjk0YTo0Nzc2NDZmMmZlY2U2ZjI0ZDg5ZTJmY2U0YmNlMmNjMjc4NGIwNjBh"; // todo automate
      var path = "launch/" + req.originalUrl.split("/")[2];
      var service = req.query.xAPILaunchService;
-     //var endpoint = service.slice(-1) === '/' ? service + path : service + '/' + path;
      var endpoint = "http://localhost:3000" + '/' + path;
-     var result_actor = "result";
-  
-     if(setActor){
+     var resourceid = req.query.resourceid;
 
-         // send POST to /launch/:key endpoint in exchange for actor info and to initialize the course
-         request.post(endpoint, (err, httpRes, body) => {
-             console.log("Cookies: ", httpRes.headers["set-cookie"]);
-             var cookie = httpRes.headers["set-cookie"][0];
-             console.log("CONNECT.SID cookie: ", cookie);
-            var temp_body = body;
-            var nameSplit;
-            var statementName = "";
-            var accountName = "";
-             try{
-                // if state request, add agent, registration, and activityId to proxyAddress
-                nameSplit = temp_body.split("name");
-                console.log("nameSplit gifaldi: ", nameSplit);
-                statementName = nameSplit[1].split("\",")[0].split(":\"")[1]; // Note: this line assumes body is in specific format: {... name:"FirstName LastName",...name:"username"}}...}
-                console.log("statementName gifaldi: ", statementName);
-                accountName = nameSplit[2].split("\"}")[0].split(":\"")[1]; // Note: this line assumes body is in specific format: {... name:"FirstName LastName",...name:"username"}}...}
-                console.log("accountName gifaldi: ", accountName);
-
-                if(proxyAddress.includes("stateId")){
-                    if(!proxyAddress.includes("activityId")){
-                        proxyAddress = proxyAddress + "&activityId=http://ple.web.att.com/course/62274816";
-                    }
-                    if(!proxyAddress.includes("agent")){
-                        proxyAddress = proxyAddress + "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"" + accountName + "\",\"homePage\":\"http://webphone.att.com\"},\"name\":\"" + statementName + "\"}";
-                    }
-                    if(!proxyAddress.includes("registration")){
-                        proxyAddress = proxyAddress + "&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7";
-                    }
-                }
-
-             }catch(e){
-                 console.log("failed to process actor info: ", e); // key may be locked to prevent double launch
-             }
-             // add the actor information to the body of the following request to lrs (PUT request to send statement) 
-             if(body != null && body != undefined && setActor){
-                 try{
-                     result_actor = body;
-                     req.body.actor = JSON.parse(result_actor.split("actor\":")[1].split(",\"endpoint")[0]);
-=
-                }catch(e){
-                    console.log("failed to process actor information: ", e);
-                 }
-             }
-             
-             var bodyLength = 0;
-             if(req.body != undefined){
-                 bodyLength = req.body.length;
-             }
-             
-             
-             var options = {
-                 method: req.method,
-                 //body: requestData,
-                 body: req.body,
-                 rejectUnauthorized: false,
-                 json: true,
-                 url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
-                 headers: {
-                     "X-Experience-API-Version": "1.0.3",
-                     "Content-Type": "application/json",
-                     "Accept": "*/*",
-                     "Authorization": auth,
-                     "Content-Length": bodyLength,
-                     "Cookie": globalCookie
-                 },
-             };
-
-             req.pipe( request({
-                 url: proxyAddress,
-                 method: req.method
-             }, function(error, response, body){
-             
-                 console.error(error);
-             
-             }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
-             console.log(e);
-             }).pipe( res );
-
-             // send statement to lrs            
-             var lrs_request = request(options, function(err, resp, request_body){
-                 if(err){
-                     console.error("Error while sending statement to lrs: ", err);
-                 }
-                 var headers = resp.headers;
-                 var statusCode = resp.statusCode;
-                 res.status(statusCode).send(resp.body);
-                // res.status(statusCode).send(request_body);
-                 console.log("Headers: ", headers);
-                 console.log("Status Code: ", statusCode);
-                 console.log("Body: ",request_body);
-             })
-         });           
+     var state; // temp variable for testing: todo remove
+     if(proxyAddress.includes("stateId")){
+         state = "stateId";
      }
      else{
-         
+        state = "statement";
+     }
+
+     // todo grab courseid from ple
+     // modify bodies of stateId and statements requests to lrs
+     // todo add comments and remove hardcoded values
+    if(proxyAddress.includes("stateId")){
+        if(!proxyAddress.includes("activityId")){
+            proxyAddress = proxyAddress + "&activityId=http://ple.web.att.com/course/62274816";
+        }
+        if(!proxyAddress.includes("agent")){
+            proxyAddress = proxyAddress + "&agent={\"objectType\":\"Agent\",\"account\":{\"name\":\"" + resourceid + "\",\"homePage\":\"http://webphone.att.com\"},\"name\":\"" + "Admin" + "\"}";
+        }
+        if(!proxyAddress.includes("registration")){
+            // console.log("req.query.registration")
+            proxyAddress = proxyAddress + "&registration=" + registration;
+        }
+        if(req.method == "GET"){
+            var actorString = "{\"activityId\":\"http://ple.web.att.com/course/62274816\",\"actor\":{\"objectType\":\"Agent\",\"account\":{\"name\":\"" + req.query.resourceId + "\",\"homePage\":\"http://webphone.att.com\"},\"name\":\"Admin\"}}";
+            req.body = JSON.parse(actorString); 
+        }
+    }else{
+        var actorString = "{\"objectType\":\"Agent\",\"account\":{\"name\":\"" + resourceid+ "\",\"homePage\":\"http://webphone.att.com\"},\"name\":\"Admin\"}";
+            req.body.actor = JSON.parse(actorString); 
+    }
+
              
-         var options = {
-                             method: req.method,
-                             //body: requestData,
-                             body: req.body,
-                             rejectUnauthorized: false,
-                             json: true,
-                             url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
-                             headers: {
-                                 "X-Experience-API-Version": "1.0.3",
-                                 "Content-Type": "application/json",
-                                 "Accept": "*/*",
-                                 "Authorization": auth,
-                                 //"Content-Length": bodyLength,
-                                 "Cookie": globalCookie
-                             },
-                         };
-         }
+        var bodyLength = 0;
+        if(req.body != undefined){
+            bodyLength = req.body.length;
+        }
+
+        var options;
+        if(state == "statement"){
+            options = {
+                method: req.method,
+                //body: requestData,
+                body: req.body,
+                rejectUnauthorized: false,
+                json: true,
+                url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
+                headers: {
+                    "X-Experience-API-Version": "1.0.3",
+                    "Content-Type": "application/json",
+                    "Accept": "*/*",
+                    "Authorization": auth,
+                  //  "Accept-Encoding": "gzip, deflate",
+                    "Content-Length": bodyLength,
+                    "Cookie": globalCookie
+                },
+            };
+        }
+        else if(state == "stateId"){
+            console.log("KYLE RAW REQUEST BODY: ", req.rawBody);
+            options = {
+                method: req.method,
+                //body: requestData,
+                body: req.rawBody,
+                rejectUnauthorized: false,
+                url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
+                encoding: null,
+                headers: {
+                    "X-Experience-API-Version": "1.0.3",
+                    "Content-Type": "application/octet-stream",
+                    "Accept": "*/*",
+                    "Authorization": auth,
+                    "Accept-Encoding": "gzip",
+                    "Content-Length": bodyLength,
+                    "Cookie": globalCookie
+                },
+            };
+        }
+
+        // TODO why does the launcher work without this. where is the lrs authentication happening
+        // looks like lrs authenticaation happens in the validateLaunchSession method
+        /*
+        req.pipe( request({
+            url: proxyAddress,
+            method: req.method
+        }, function(error, response, body){
+        
+            console.error(error);
+        
+        }).auth(req.lrsConfig.username,req.lrsConfig.password,true)      ).on('error',function(e){
+        console.log(e);
+        }).pipe( res );
+        */
+
+        // send statement to lrs      
+        var lrs_request = request(options, function(err, resp, request_body){
+            if(err){
+                console.error("Error while sending statement to lrs: ", err);
+            }
+            if(resp != undefined){
+            var headers = resp.headers;
+            var statusCode = resp.statusCode;
+
+            // stateId responses were returning an additional " symbol at the beginning of response body
+            // todo: test with several courses to confirm consistant behavior
+            // and then condense the following check to one line.
+            if(state == "statement"){
+                res.status(statusCode).send(resp.body);
+            }
+            /*else if(state == "stateId" && (typeof resp.body == "string")){
+                var stripped_body = resp.body;
+                if(stripped_body != null && stripped_body.charAt(0) == '"'){
+                    stripped_body = stripped_body.substr(1);
+                }
+                res.status(statusCode).send(stripped_body);
+                console.log("KYLE RESPONSE RAW BODY: ", resp.body);
+                console.log("KYLE RESPONSE STRIPPED BODY: ", stripped_body);
+            }*/
+            else if(state == "stateId"){
+
+               /* var data = [];
+
+                resp.on('data', function(chunk) {
+                    data.push(chunk);
+                }).on('end', function() {
+                    //at this point data is an array of Buffers
+                    //so Buffer.concat() can make us a new Buffer
+                    //of all of them together
+                    var buffer = Buffer.concat(data);
+                    console.log(buffer.toString('base64'));
+                    res.status(statusCode).send(buffer.toString('base64'));
+                });
+                */
+
+
+                res.status(statusCode).send(resp.body.toString());
+            }
+
+            console.log("gifaldi resp.body: ", resp.body);
+            console.log("Headers: ", headers);
+            console.log("Status Code: ", statusCode);
+            console.log("Body: ",request_body);
+            }
+            else{
+                console.log("lrs call FAILED!");
+            }
+        })
+
+   
  }));
  
     app.get("/launches/:key", function(req, res, next)

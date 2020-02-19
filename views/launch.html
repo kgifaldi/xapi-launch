@@ -174,15 +174,29 @@
 
 var launch = {{{launch}}};
 var content = {{{content}}};
+var registration = '{{{registration}}}';
+var resourceid = '{{{resourceid}}}';
 var endpoint = '{{{endpoint}}}';
+var coursepackage = '{{{package}}}';
 $(document).ready(function(){
-    
+    var redirect = ""; //"http://localhost:3000/package/" + package + "index.html?";
     var url = new URL(content.url);
-    params = "xAPILaunchKey=" + launch.uuid + "&xAPILaunchService=" + encodeURIComponent(endpoint);
-
+    var objectType = "Agent";
+    var agent_name = "Admin";
+    var account;
+    var homePage = "http://localhost:3000/";
+    var account_name = "5d4dcc9b05ed645dd43db6d9";
+    var account = {homePage: homePage, name: account_name};
+    var actor = {objectType: objectType, name: agent_name, account: account};
+   // console.log("gifaldi registration 3: ", registration);
+    params = "xAPILaunchKey=" + launch.uuid +"&endpoint=http://localhost:3000/launch/" + launch.uuid +"/xAPI/" + "&xAPILaunchService=" + encodeURIComponent(endpoint) + "&activity_id=http://ple.web.att.com/course/62274816&actor={}&registration=" + registration + "&resourceid=" + resourceid; //{\"account\":[{\"accountServiceHomePage\":\"http://webphone.att.com\",\"accountName\":\"kg904k\"}],\"name\":[\"Kyle Gifaldi\"],\"objectType\":\"Agent\"}";// + "&registration=8f9fae22-059d-4df0-85c6-965e0f3bea8a";// + "&b_actor=eyJhY2NvdW50IjpbeyJhY2NvdW50U2VydmljZUhvbWVQYWdlIjoiaHR0cDovL3dlYnBob25lLmF0dC5jb20iLCJhY2NvdW50TmFtZSI6Im1tMTMyYiJ9XSwibmFtZSI6WyJNaWNoYWVsIE1haGVyIl0sIm9iamVjdFR5cGUiOiJBZ2VudCJ9&registration=d80251bf-db38-42ef-bcef-73a8ef20bfe7"; //&xAPILaunchService=" + encodeURIComponent(endpoint); // + "&b_actor=" + "eyJhY2NvdW50IjpbeyJhY2NvdW50U2VydmljZUhvbWVQYWdlIjoiaHR0cDovL3dlYnBob25lLmF0dC5jb20iLCJhY2NvdW50TmFtZSI6Im1tMTMyYiJ9XSwibmFtZSI6WyJNaWNoYWVsIE1haGVyIl0sIm9iamVjdFR5cGUiOiJBZ2VudCJ9" + "&endpoint=" + "http://zld06475.vci.att.com:8080/pub/xAPIP/";
+    //params = "xAPILaunchKey=" + launch.uuid +"&xAPILaunchService=" + encodeURIComponent(endpoint); // + "&b_actor=" + "eyJhY2NvdW50IjpbeyJhY2NvdW50U2VydmljZUhvbWVQYWdlIjoiaHR0cDovL3dlYnBob25lLmF0dC5jb20iLCJhY2NvdW50TmFtZSI6Im1tMTMyYiJ9XSwibmFtZSI6WyJNaWNoYWVsIE1haGVyIl0sIm9iamVjdFR5cGUiOiJBZ2VudCJ9" + "&endpoint=" + "http://zld06475.vci.att.com:8080/pub/xAPIP/";
+    redirect += params;
     if (content.publicKey == true)
     {
-        params += "&" + "encryption=true";
+      params += "&" + "encryption=true";
+      redirect += "&" + "encryption=true";
+        
     }
     if (url.search)
         url.search += "&";
@@ -190,7 +204,25 @@ $(document).ready(function(){
 
     if (content.launchType == "popup")
     {
-        var newWin = window.open(url.toString(), "_blank");
+      console.log("gifaldi popup");
+      console.log("gifaldi redirect");
+      console.log("gifaldi url: ", url.toString());
+      console.log("gifaldi package: ", coursepackage);
+      redirect = url.toString();
+      let toParse = redirect.split('/');
+      console.log("gifaldi to parse[4]", toParse[4]);
+      console.log("gifaldi to parse[5]", toParse[5]);
+      console.log("gifaldi to parse[6]", toParse[6]);
+
+
+      toParse[4] = coursepackage;
+      console.log("gifaldi toParse: ", toParse.join('/').toString());
+
+      window.location = url.toString();
+
+      /*
+
+        var newWin = window.open(toParse.join('/').toString(), "_blank");
 
         if(!newWin || newWin.closed || typeof newWin.closed=='undefined') 
         {
@@ -199,11 +231,25 @@ $(document).ready(function(){
         {
             window.location = "/users/launches";    
         }
+        */
 
         
     }
     if (content.launchType == "redirect")
     {
+      console.log("gifaldi redirect");
+      console.log("gifaldi url: ", url.toString());
+      console.log("gifaldi package: ", coursepackage);
+      redirect = url.toString();
+      let toParse = redirect.split('/');
+      console.log("gifaldi to parse[4]", toParse[4]);
+      console.log("gifaldi to parse[5]", toParse[5]);
+      console.log("gifaldi to parse[6]", toParse[6]);
+
+
+      toParse[4] = coursepackage;
+      console.log("gifaldi toParse: ", toParse.join('/').toString());
+
 
         window.location = url.toString();
     }

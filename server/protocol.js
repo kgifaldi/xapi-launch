@@ -17,7 +17,7 @@ exports.setup = function(app, DAL)
 		var contentURL = req.query.uri.replace("web+xapi2://", "");
 		//
 		var content = URL.parse(contentURL, true);
-		console.log(content);
+		console.log("GIFALDI 5: ", content);
 		var launchData = req.query.launchData;
 		var courseContext = req.query.courseContext;
 		delete content.query.launchData;
@@ -48,7 +48,7 @@ exports.setup = function(app, DAL)
 					{
 						return res.status(500).send(err);
 					}
-					console.log(newcontent);
+					console.log("GIFALDI 7: ", newcontent);
 					return newcontent.save(function(){
 						setTimeout(function(){
 							res.redirect("/launch/" + newcontent._id + "?launchData=" + launchData + (courseContext ? ("&courseContext=" + courseContext) : ""))	

@@ -18,15 +18,16 @@ var userHasRole = require("./users.js").userHasRole;
 var parseXml = require('xml2js').parseString;
 exports.setup = function(app, DAL)
 {
-	app.get("/packages/upload/", ensureLoggedIn, userHasRole("creator"), form("./server/forms/uploadZip.json"));
-	app.post("/packages/upload/", ensureLoggedIn, userHasRole("creator"), form("./server/forms/uploadZip.json"), function(req, res, next)
+
+	app.post("/packages/upload/ple", ensureLoggedIn, form("./server/forms/uploadZipPle.json"), function(req, res, next)
 	{
 		var package = require("node-uuid").v4();
-		var file = req.files.zip;
+		var file = req.files.myfile;
 		var zip = new AdmZip(file.buffer);
 		var entries = zip.getEntries();
 		var files = [];
 		var manifest = null;
+
 		async.eachSeries(entries, function(entry, nextEntry)
 		{
 			if (entry.isDirectory)
@@ -64,7 +65,99 @@ exports.setup = function(app, DAL)
 				contentRequest.owner = req.user.email;
 				contentRequest.packageLink = _p.id;
 				contentRequest.iconURL = "/static/img/zip.png";
-				contentRequest.launchType = "redirect";
+				contentRequest.launchType = "popup";
+				DAL.registerContent(contentRequest, function(err, content)
+				{
+					_p.contentLink = content.key;
+					_p.save(function()
+					{
+						res.redirect("/content/search/" + content.key + "/");
+					})
+				})
+			}
+
+			if (!manifest)
+			postManifest(defaultManifest)
+			else
+			{
+				manifest.getData(function(err, xml)
+				{
+					parseXml(xml.toString("utf8"), function(err, result)
+					{
+						if (err)
+							return postManifest(defaultManifest);
+						try
+						{
+
+							var au = result.courseStructure.au[0];
+							
+							postManifest(
+							{
+								title: au.title[0].langstring[0]._,
+								description: au.description[0].langstring[0]._,
+								url: au.url[0]
+							});
+						}
+						catch (e)
+						{
+							console.log(e);
+							return postManifest(defaultManifest);
+						}
+					});
+				})
+			}
+		});
+
+	});
+
+	app.get("/packages/upload/", ensureLoggedIn, userHasRole("creator"), form("./server/forms/uploadZip.json"));
+	app.post("/packages/upload/", ensureLoggedIn, userHasRole("creator"), form("./server/forms/uploadZip.json"), function(req, res, next)
+	{
+		var package = require("node-uuid").v4();
+		var file = req.files.zip;
+		var zip = new AdmZip(file.buffer);
+		var entries = zip.getEntries();
+		var files = [];
+		var manifest = null;
+
+		async.eachSeries(entries, function(entry, nextEntry)
+		{
+			if (entry.isDirectory)
+				return nextEntry();
+			var _f = new File()
+			_f.DB = DAL.DB;
+			files.push(_f);
+			_f.package = package;
+			_f.owner = req.user.email;
+			if (entry.entryName && require('path').parse(entry.entryName).base == 'coursePackage.xml')
+			{
+				manifest = _f;
+			}
+			_f.fromZipEntry(entry, nextEntry)
+		}, function(err)
+		{
+			var defaultManifest = {
+				title: file.originalFilename,
+				description: "Generated from uploaded zip file.",
+				url: "./index.html"
+			}
+
+			function postManifest(manifest)
+			{
+				console.log(manifest);
+				var _p = new Package()
+				_p.DB = DAL.DB;
+				_p.id = package;
+				_p.name = file.originalFilename;
+				_p.owner = req.user.email;
+				var contentRequest = {};
+				contentRequest.url = ((config.host + "/") || "http://localhost:3000/") + "package/" + _p.id + "/" + manifest.url;
+				contentRequest.title = manifest.title
+				contentRequest.description = manifest.description;
+				contentRequest.owner = req.user.email;
+				contentRequest.packageLink = _p.id;
+				contentRequest.iconURL = "/static/img/zip.png";
+				contentRequest.launchType = "popup";
 				DAL.registerContent(contentRequest, function(err, content)
 				{
 					_p.contentLink = content.key;
@@ -111,13 +204,16 @@ exports.setup = function(app, DAL)
 			}
 		});
 
-/*
+	});
+
+	function uploadCourseToPLE(req, res){
+		
+
 		console.log("gifaldi uploading course to PLE!");
 		console.log("gifaldi req.files.zip: ", req.files.zip);
-
 		var options = {
 			method: "POST",
-			url: "http://localhost:8080/publish-rs/v1/upload/mm132b/62274890", // lrs.test.att.com:8001?statementId=xxxxxx
+			url: "http://ple.dev.att.com/Publish/api/v1/upload/mm132b/87654321", // lrs.test.att.com:8001?statementId=xxxxxx
 			headers: {
 				"Content-Type": "multipart/form-data"
 			},
@@ -126,59 +222,37 @@ exports.setup = function(app, DAL)
 				//"myfile": fs.createReadStream(req.files.zip.originalFilename)
 			}
 		};
+
 		console.log("gifaldi options set");
+
+		/*
+		req.pipe( request({
+			url: "http://ple.dev.att.com/Publish/api/v1/upload/mm132b/62274899",
+			method: "POST"
+		}, function(error, response, body){
+		
+			console.error(error);
+		
+		})).on('error',function(e){
+			console.log(e);
+		}).pipe( res );
+*/
 
 		// call PLE upload endpoint        
 		var lrs_request = request(options, function(err, resp, request_body){
 			if(err){
 				console.error("Error while sending statement to lrs: ", err);
 			}
-			var headers = resp.headers;
+			//var headers = resp.headers;
 			var statusCode = resp.statusCode;
-			res.status(statusCode).send(resp.body);
-		    res.status(statusCode).send(request_body);
-			console.log("Headers: ", headers);
+			//res.status(statusCode).send(resp.body);
+		    //res.status(statusCode).send(request_body);
+			//console.log("Headers: ", headers);
 			console.log("Status Code: ", statusCode);
 			console.log("Body: ",request_body);
 		})
-*/
 
-		/*
-
-		 var options = {
-                 method: req.method,
-                 //body: requestData,
-                 body: req.body,
-                 rejectUnauthorized: false,
-                 json: true,
-                 url: proxyAddress, // lrs.test.att.com:8001?statementId=xxxxxx
-                 headers: {
-                     "X-Experience-API-Version": "1.0.3",
-                     "Content-Type": "application/json",
-                     "Authorization": auth,
-                     "Content-Length": bodyLength,
-                     "Cookie": globalCookie
-                 },
-             };
-
-             // send statement to lrs            
-             var lrs_request = request(options, function(err, resp, request_body){
-                 if(err){
-                     console.error("Error while sending statement to lrs: ", err);
-                 }
-                 var headers = resp.headers;
-                 var statusCode = resp.statusCode;
-                 res.status(statusCode).send(resp.body);
-             // res.status(statusCode).send(request_body);
-                 console.log("Headers: ", headers);
-                 console.log("Status Code: ", statusCode);
-                 console.log("Body: ",request_body);
-             })
-
-		*/
-
-
-	});
+	}
 
 	function deletePackage(id, cb)
 	{
@@ -215,6 +289,9 @@ exports.setup = function(app, DAL)
 				})
 			})
 		})
+
+
+
 	}
 	app.get("/packages/:id/delete", ensureLoggedIn, function(req, res, next)
 	{

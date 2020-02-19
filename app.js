@@ -8,7 +8,13 @@ require('pretty-error').start();
 var mongoose = require('mongoose');
 var DAL = null;
 var config;
+
+//process.on('uncaughtException', function(error) {
+//	console.log("Uncaught Exception in launcher. Please restart server: ", error);
+//});
+
 async.series([
+	
 	
 	function loadConfig(cb)
 	{
